@@ -1,4 +1,4 @@
-# Antigravity Claude Server
+# Antigravity Claude Proxy
 
 [![npm version](https://img.shields.io/npm/v/antigravity-claude-proxy.svg)](https://www.npmjs.com/package/antigravity-claude-proxy)
 [![npm downloads](https://img.shields.io/npm/dm/antigravity-claude-proxy.svg)](https://www.npmjs.com/package/antigravity-claude-proxy)
@@ -45,8 +45,8 @@ antigravity-claude-proxy start
 ### Option 2: Clone Repository
 
 ```bash
-git clone https://github.com/badri-s2001/antigravity_claude_server.git
-cd antigravity_claude_server
+git clone https://github.com/badri-s2001/antigravity-claude-proxy.git
+cd antigravity-claude-proxy
 npm install
 npm start
 ```
@@ -322,4 +322,4 @@ MIT
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=badri-s2001/antigravity_claude_server&type=date&legend=top-left)](https://www.star-history.com/#badri-s2001/antigravity_claude_server&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=badri-s2001/antigravity-claude-proxy&type=date&legend=top-left)](https://www.star-history.com/#badri-s2001/antigravity-claude-proxy&type=date&legend=top-left)
