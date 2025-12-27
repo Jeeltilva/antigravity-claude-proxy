@@ -188,10 +188,6 @@ claude
 | `claude-opus-4-5-thinking` | Claude Opus 4.5 with extended thinking |
 | `claude-sonnet-4-5` | Claude Sonnet 4.5 without thinking |
 
-Standard Anthropic model names are automatically mapped:
-- `claude-sonnet-4-5-20250514` → `claude-sonnet-4-5-thinking`
-- `claude-opus-4-5-20250514` → `claude-opus-4-5-thinking`
-
 ### Gemini Models
 
 | Model ID | Description |
