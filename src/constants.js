@@ -103,16 +103,33 @@ export const MAX_ACCOUNTS = config?.maxAccounts || 10; // From config or 10
 // Rate limit wait thresholds
 export const MAX_WAIT_BEFORE_ERROR_MS = config?.maxWaitBeforeErrorMs || 120000; // From config or 2 minutes
 
-// Gap 1: Retry deduplication - prevents thundering herd on concurrent rate limits
-export const RATE_LIMIT_DEDUP_WINDOW_MS = config?.rateLimitDedupWindowMs || 5000; // 5 seconds
+// Retry deduplication - prevents thundering herd on concurrent rate limits
+export const RATE_LIMIT_DEDUP_WINDOW_MS = config?.rateLimitDedupWindowMs || 2000; // 2 seconds
+export const RATE_LIMIT_STATE_RESET_MS = config?.rateLimitStateResetMs || 120000; // 2 minutes - reset consecutive429 after inactivity
+export const FIRST_RETRY_DELAY_MS = config?.firstRetryDelayMs || 1000; // Quick 1s retry on first 429
+export const SWITCH_ACCOUNT_DELAY_MS = config?.switchAccountDelayMs || 5000; // Delay before switching accounts
 
-// Gap 2: Consecutive failure tracking - extended cooldown after repeated failures
+// Consecutive failure tracking - extended cooldown after repeated failures
 export const MAX_CONSECUTIVE_FAILURES = config?.maxConsecutiveFailures || 3;
 export const EXTENDED_COOLDOWN_MS = config?.extendedCooldownMs || 60000; // 1 minute
 
-// Gap 4: Capacity exhaustion - shorter retry for model capacity issues (not quota)
-export const CAPACITY_RETRY_DELAY_MS = config?.capacityRetryDelayMs || 2000; // 2 seconds
-export const MAX_CAPACITY_RETRIES = config?.maxCapacityRetries || 3;
+// Capacity exhaustion - progressive backoff tiers for model capacity issues
+export const CAPACITY_BACKOFF_TIERS_MS = config?.capacityBackoffTiersMs || [5000, 10000, 20000, 30000, 60000];
+export const MAX_CAPACITY_RETRIES = config?.maxCapacityRetries || 5;
+
+// Smart backoff by error type
+export const BACKOFF_BY_ERROR_TYPE = {
+    RATE_LIMIT_EXCEEDED: 30000,      // 30 seconds
+    MODEL_CAPACITY_EXHAUSTED: 15000, // 15 seconds
+    SERVER_ERROR: 20000,             // 20 seconds
+    UNKNOWN: 60000                   // 1 minute
+};
+
+// Progressive backoff tiers for QUOTA_EXHAUSTED (60s, 5m, 30m, 2h)
+export const QUOTA_EXHAUSTED_BACKOFF_TIERS_MS = [60000, 300000, 1800000, 7200000];
+
+// Minimum backoff floor to prevent "Available in 0s" loops (matches opencode-antigravity-auth)
+export const MIN_BACKOFF_MS = 2000;
 
 // Thinking model constants
 export const MIN_SIGNATURE_LENGTH = 50; // Minimum valid thinking signature length
@@ -258,10 +275,16 @@ export default {
     MAX_ACCOUNTS,
     MAX_WAIT_BEFORE_ERROR_MS,
     RATE_LIMIT_DEDUP_WINDOW_MS,
+    RATE_LIMIT_STATE_RESET_MS,
+    FIRST_RETRY_DELAY_MS,
+    SWITCH_ACCOUNT_DELAY_MS,
     MAX_CONSECUTIVE_FAILURES,
     EXTENDED_COOLDOWN_MS,
-    CAPACITY_RETRY_DELAY_MS,
+    CAPACITY_BACKOFF_TIERS_MS,
     MAX_CAPACITY_RETRIES,
+    BACKOFF_BY_ERROR_TYPE,
+    QUOTA_EXHAUSTED_BACKOFF_TIERS_MS,
+    MIN_BACKOFF_MS,
     MIN_SIGNATURE_LENGTH,
     GEMINI_MAX_OUTPUT_TOKENS,
     GEMINI_SKIP_SIGNATURE,
