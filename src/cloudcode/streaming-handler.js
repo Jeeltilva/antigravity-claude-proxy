@@ -15,7 +15,8 @@ import {
     MAX_CONSECUTIVE_FAILURES,
     EXTENDED_COOLDOWN_MS,
     CAPACITY_BACKOFF_TIERS_MS,
-    MAX_CAPACITY_RETRIES
+    MAX_CAPACITY_RETRIES,
+    BACKOFF_BY_ERROR_TYPE
 } from '../constants.js';
 import { isRateLimitError, isAuthError, isEmptyResponseError } from '../errors.js';
 import { formatDuration, sleep, isNetworkError } from '../utils/helpers.js';
