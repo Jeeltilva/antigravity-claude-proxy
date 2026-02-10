@@ -144,7 +144,7 @@ export function extractCodeFromInput(input) {
  * @param {string} host - Host to bind to
  * @returns {Promise<number>} Resolves with port on success, rejects on error
  */
-function tryBindPort(server, port, host = '0.0.0.0') {
+function tryBindPort(server, port, host) {
     return new Promise((resolve, reject) => {
         const onError = (err) => {
             server.removeListener('listening', onSuccess);
@@ -174,7 +174,7 @@ export function startCallbackServer(expectedState, timeoutMs = 120000) {
     let timeoutId = null;
     let isAborted = false;
     let actualPort = OAUTH_CONFIG.callbackPort;
-    const host = process.env.HOST || '0.0.0.0';
+    const host = process.env.HOST || 'localhost';
 
     const promise = new Promise(async (resolve, reject) => {
         // Build list of ports to try: primary + fallbacks

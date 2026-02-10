@@ -49,7 +49,7 @@ if (isFallbackEnabled) {
 export const FALLBACK_ENABLED = isFallbackEnabled;
 
 const PORT = process.env.PORT || DEFAULT_PORT;
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST || 'localhost';
 
 if (process.env.HOST) {
     logger.info(`[Startup] Using HOST environment variable: ${process.env.HOST}`);
