@@ -4,11 +4,30 @@
 [![npm downloads](https://img.shields.io/npm/dm/antigravity-claude-proxy.svg)](https://www.npmjs.com/package/antigravity-claude-proxy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<a href="https://buymeacoffee.com/badrinarayanans" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
-
-A proxy server that exposes an **Anthropic-compatible API** backed by **Antigravity's Cloud Code**, letting you use Claude and Gemini models with **Claude Code CLI**.
+A proxy server that exposes an **Anthropic-compatible API** backed by **Antigravity's Cloud Code**, letting you use Claude and Gemini models with **Claude Code CLI** and **OpenClaw / ClawdBot**.
 
 ![Antigravity Claude Proxy Banner](images/banner.png)
+
+<details>
+<summary><strong>⚠️ Terms of Service Warning — Read Before Installing</strong></summary>
+
+> [!CAUTION]
+> Using this proxy may violate Google's Terms of Service. A small number of users have reported their Google accounts being **banned** or **shadow-banned** (restricted access without explicit notification).
+>
+> **High-risk scenarios:**
+> - 🚨 **Fresh Google accounts** have a very high chance of getting banned
+> - 🚨 **New accounts with Pro/Ultra subscriptions** are frequently flagged and banned
+>
+> **By using this proxy, you acknowledge:**
+> - This is an unofficial tool not endorsed by Google
+> - Your account may be suspended or permanently banned
+> - You assume all risks associated with using this proxy
+>
+> **Recommendation:** Use an established Google account that you don't rely on for critical services. Avoid creating new accounts specifically for this proxy.
+
+</details>
+
+---
 
 ## How It Works
 
@@ -154,8 +173,8 @@ Add this configuration:
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "test",
     "ANTHROPIC_BASE_URL": "http://localhost:8080",
-    "ANTHROPIC_MODEL": "claude-opus-4-5-thinking",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-5-thinking",
+    "ANTHROPIC_MODEL": "claude-opus-4-6-thinking",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6-thinking",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-thinking",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-4-5",
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-5-thinking",
@@ -261,386 +280,35 @@ function claude-antigravity {
 
 Then run `claude` for official API or `claude-antigravity` for this proxy.
 
----
+### Running as a System Service (systemd)
 
-## Available Models
+When running as a systemd service, the proxy runs under a different user (e.g. `root`), so it can't find your Claude CLI settings at `~/.claude/settings.json`. Set `CLAUDE_CONFIG_PATH` to point to the real user's `.claude` directory:
 
-### Claude Models
+```ini
+# /etc/systemd/system/antigravity-proxy.service
+[Service]
+Environment=CLAUDE_CONFIG_PATH=/home/youruser/.claude
+ExecStart=/usr/bin/node /path/to/antigravity-claude-proxy/src/index.js
+```
 
-| Model ID                     | Description                              |
-| ---------------------------- | ---------------------------------------- |
-| `claude-sonnet-4-5-thinking` | Claude Sonnet 4.5 with extended thinking |
-| `claude-opus-4-5-thinking`   | Claude Opus 4.5 with extended thinking   |
-| `claude-sonnet-4-5`          | Claude Sonnet 4.5 without thinking       |
-
-### Gemini Models
-
-| Model ID            | Description                     |
-| ------------------- | ------------------------------- |
-| `gemini-3-flash`    | Gemini 3 Flash with thinking    |
-| `gemini-3-pro-low`  | Gemini 3 Pro Low with thinking  |
-| `gemini-3-pro-high` | Gemini 3 Pro High with thinking |
-
-Gemini models include full thinking support with `thoughtSignature` handling for multi-turn conversations.
+Without this, the WebUI's Claude CLI tab won't be able to read or write your Claude Code configuration.
 
 ---
 
-## Multi-Account Load Balancing
-
-When you add multiple accounts, the proxy intelligently distributes requests across them using configurable selection strategies.
-
-### Account Selection Strategies
-
-Choose a strategy based on your needs:
-
-| Strategy | Best For | Description |
-| --- | --- | --- |
-| **Hybrid** (Default) | Most users | Smart selection combining health score, token bucket rate limiting, quota awareness, and LRU freshness |
-| **Sticky** | Prompt caching | Stays on the same account to maximize cache hits, switches only when rate-limited |
-| **Round-Robin** | Even distribution | Cycles through accounts sequentially for balanced load |
-
-**Configure via CLI:**
-
-```bash
-antigravity-claude-proxy start --strategy=hybrid    # Default: smart distribution
-antigravity-claude-proxy start --strategy=sticky    # Cache-optimized
-antigravity-claude-proxy start --strategy=round-robin  # Load-balanced
-```
-
-**Or via WebUI:** Settings → Server → Account Selection Strategy
-
-### How It Works
-
-- **Health Score Tracking**: Accounts earn points for successful requests and lose points for failures/rate-limits
-- **Token Bucket Rate Limiting**: Client-side throttling with regenerating tokens (50 max, 6/minute)
-- **Quota Awareness**: Accounts with critical quota (<5%) are deprioritized; exhausted accounts trigger emergency fallback
-- **Emergency Fallback**: When all accounts appear exhausted, bypasses checks with throttle delays (250-500ms)
-- **Automatic Cooldown**: Rate-limited accounts recover automatically after reset time expires
-- **Invalid Account Detection**: Accounts needing re-authentication are marked and skipped
-- **Prompt Caching Support**: Session IDs derived from conversation enable cache hits across turns
-
-### Monitoring
-
-Check account status, subscription tiers, and quota anytime:
-
-```bash
-# Web UI: http://localhost:8080/ (Accounts tab - shows tier badges and quota progress)
-# CLI Table:
-curl "http://localhost:8080/account-limits?format=table"
-```
-
-#### CLI Management Reference
-
-If you prefer using the terminal for management:
-
-```bash
-# List all accounts
-antigravity-claude-proxy accounts list
-
-# Verify account health
-antigravity-claude-proxy accounts verify
-
-# Interactive CLI menu
-antigravity-claude-proxy accounts
-```
-
----
-
-## Web Management Console
-
-The proxy includes a built-in, modern web interface for real-time monitoring and configuration. Access the console at: `http://localhost:8080` (default port).
-
-![Antigravity Console](images/webui-dashboard.png)
-
-### Key Features
-
-- **Real-time Dashboard**: Monitor request volume, active accounts, model health, and subscription tier distribution.
-- **Visual Model Quota**: Track per-model usage and next reset times with color-coded progress indicators.
-- **Account Management**: Add/remove Google accounts via OAuth, view subscription tiers (Free/Pro/Ultra) and quota status at a glance.
-- **Manual OAuth Mode**: Add accounts on headless servers by copying the OAuth URL and pasting the authorization code.
-- **Claude CLI Configuration**: Edit your `~/.claude/settings.json` directly from the browser.
-- **Persistent History**: Tracks request volume by model family for 30 days, persisting across server restarts.
-- **Time Range Filtering**: Analyze usage trends over 1H, 6H, 24H, 7D, or All Time periods.
-- **Smart Analysis**: Auto-select top 5 most used models or toggle between Family/Model views.
-- **Live Logs**: Stream server logs with level-based filtering and search.
-- **Advanced Tuning**: Configure retries, timeouts, and debug mode on the fly.
-- **Multi-language Interface**: Full support for English, Chinese (中文), Indonesian (Bahasa), and Portuguese (PT-BR).
-
----
-
-## Advanced Configuration
-
-While most users can use the default settings, you can tune the proxy behavior via the **Settings → Server** tab in the WebUI or by creating a `config.json` file.
-
-### Configurable Options
-
-- **API Key Authentication**: Protect `/v1/*` API endpoints with `API_KEY` env var or `apiKey` in config.
-- **WebUI Password**: Secure your dashboard with `WEBUI_PASSWORD` env var or in config.
-- **Custom Port**: Change the default `8080` port.
-- **Retry Logic**: Configure `maxRetries`, `retryBaseMs`, and `retryMaxMs`.
-- **Rate Limit Handling**: Comprehensive rate limit detection from headers and error messages with intelligent retry-after parsing.
-- **Load Balancing**: Adjust `defaultCooldownMs` and `maxWaitBeforeErrorMs`.
-- **Persistence**: Enable `persistTokenCache` to save OAuth sessions across restarts.
-- **Max Accounts**: Set `maxAccounts` (1-100) to limit the number of Google accounts. Default: 10.
-- **Endpoint Fallback**: Automatic 403/404 endpoint fallback for API compatibility.
-
-Refer to `config.example.json` for a complete list of fields and documentation.
-
----
-
-## macOS Menu Bar App
-
-For macOS users who prefer a native experience, there's a companion menu bar app that provides quick access to server controls without touching the terminal. Get it from: [antigravity-claude-proxy-bar](https://github.com/IrvanFza/antigravity-claude-proxy-bar)
-
-> **Note:** This is a GUI wrapper only. You still need to install and setup the proxy server first using one of the [installation methods](#installation) above.
-
-![AntiGravity Claude Proxy Bar](https://github.com/IrvanFza/antigravity-claude-proxy-bar/blob/main/images/application.png?raw=true)
-
-### Key Features
-
-- **Server Control**: Start/stop the proxy server with a single click or ⌘S shortcut.
-- **Status Indicator**: Menu bar icon shows server running state at a glance.
-- **WebUI Access**: Open the web management console directly from the menu.
-- **Port Configuration**: Customize the proxy server port (default: 8080).
-- **Account Selection Strategy**: Choose between Hybrid, Sticky, or Round-Robin load balancing strategies.
-- **Auto-Start Options**: Launch server on app start and launch app at login.
-- **Native Experience**: Clean, native SwiftUI interface designed for macOS.
-
----
-
-## API Endpoints
-
-| Endpoint          | Method | Description                                                           |
-| ----------------- | ------ | --------------------------------------------------------------------- |
-| `/health`         | GET    | Health check                                                          |
-| `/account-limits` | GET    | Account status and quota limits (add `?format=table` for ASCII table) |
-| `/v1/messages`    | POST   | Anthropic Messages API                                                |
-| `/v1/models`      | GET    | List available models                                                 |
-| `/refresh-token`  | POST   | Force token refresh                                                   |
-
----
-
-## Testing
-
-Run the test suite (requires server running):
-
-```bash
-# Start server in one terminal
-npm start
-
-# Run tests in another terminal
-npm test
-```
-
-Individual tests:
-
-```bash
-npm run test:signatures    # Thinking signatures
-npm run test:multiturn     # Multi-turn with tools
-npm run test:streaming     # Streaming SSE events
-npm run test:interleaved   # Interleaved thinking
-npm run test:images        # Image processing
-npm run test:caching       # Prompt caching
-npm run test:strategies    # Account selection strategies
-npm run test:cache-control # Cache control field stripping
-```
-
----
-
-## Troubleshooting
-
-### Windows: OAuth Port Error (EACCES)
-
-On Windows, the default OAuth callback port (51121) may be reserved by Hyper-V, WSL2, or Docker. If you see:
-
-```
-Error: listen EACCES: permission denied 0.0.0.0:51121
-```
-
-The proxy will automatically try fallback ports (51122-51126). If all ports fail, try these solutions:
-
-#### Option 1: Use a Custom Port (Recommended)
-
-Set a custom port outside the reserved range:
-
-```bash
-# Windows PowerShell
-$env:OAUTH_CALLBACK_PORT = "3456"
-antigravity-claude-proxy start
-
-# Windows CMD
-set OAUTH_CALLBACK_PORT=3456
-antigravity-claude-proxy start
-
-# Or add to your .env file
-OAUTH_CALLBACK_PORT=3456
-```
-
-#### Option 2: Reset Windows NAT
-
-Run as Administrator:
-
-```powershell
-net stop winnat
-net start winnat
-```
-
-#### Option 3: Check Reserved Ports
-
-See which ports are reserved:
-
-```powershell
-netsh interface ipv4 show excludedportrange protocol=tcp
-```
-
-If 51121 is in a reserved range, use Option 1 with a port outside those ranges.
-
-#### Option 4: Permanently Exclude Port (Admin)
-
-Reserve the port before Hyper-V claims it (run as Administrator):
-
-```powershell
-netsh int ipv4 add excludedportrange protocol=tcp startport=51121 numberofports=1
-```
-
-> **Note:** The server automatically tries fallback ports (51122-51126) if the primary port fails.
-
----
-
-### "Could not extract token from Antigravity"
-
-If using single-account mode with Antigravity:
-
-1. Make sure Antigravity app is installed and running
-2. Ensure you're logged in to Antigravity
-
-Or add accounts via OAuth instead: `antigravity-claude-proxy accounts add`
-
-### 401 Authentication Errors
-
-The token might have expired. Try:
-
-```bash
-curl -X POST http://localhost:8080/refresh-token
-```
-
-Or re-authenticate the account:
-
-```bash
-antigravity-claude-proxy accounts
-```
-
-### Rate Limiting (429)
-
-With multiple accounts, the proxy automatically switches to the next available account. With a single account, you'll need to wait for the rate limit to reset.
-
-### Account Shows as "Invalid"
-
-Re-authenticate the account:
-
-```bash
-antigravity-claude-proxy accounts
-# Choose "Re-authenticate" for the invalid account
-```
-
----
-
-## Safety, Usage, and Risk Notices
-
-### Intended Use
-
-- Personal / internal development only
-- Respect internal quotas and data handling policies
-- Not for production services or bypassing intended limits
-
-### Not Suitable For
-
-- Production application traffic
-- High-volume automated extraction
-- Any use that violates Acceptable Use Policies
-
-### Warning (Assumption of Risk)
-
-By using this software, you acknowledge and accept the following:
-
-- **Terms of Service risk**: This approach may violate the Terms of Service of AI model providers (Anthropic, Google, etc.). You are solely responsible for ensuring compliance with all applicable terms and policies.
-
-- **Account risk**: Providers may detect this usage pattern and take punitive action, including suspension, permanent ban, or loss of access to paid subscriptions.
-
-- **No guarantees**: Providers may change APIs, authentication, or policies at any time, which can break this method without notice.
-
-- **Assumption of risk**: You assume all legal, financial, and technical risks. The authors and contributors of this project bear no responsibility for any consequences arising from your use.
-
-**Use at your own risk. Proceed only if you understand and accept these risks.**
-
----
-
-## Legal
-
-- **Not affiliated with Google or Anthropic.** This is an independent open-source project and is not endorsed by, sponsored by, or affiliated with Google LLC or Anthropic PBC.
-
-- "Antigravity", "Gemini", "Google Cloud", and "Google" are trademarks of Google LLC.
-
-- "Claude" and "Anthropic" are trademarks of Anthropic PBC.
-
-- Software is provided "as is", without warranty. You are responsible for complying with all applicable Terms of Service and Acceptable Use Policies.
-
----
-
-## Development
-
-### For Developers & Contributors
-
-This project uses a local Tailwind CSS build system. CSS is pre-compiled and included in the repository, so you can run the project immediately after cloning.
-
-#### Quick Start
-
-```bash
-git clone https://github.com/badri-s2001/antigravity-claude-proxy.git
-cd antigravity-claude-proxy
-npm install  # Automatically builds CSS via prepare hook
-npm start    # Start server (no rebuild needed)
-```
-
-#### Frontend Development
-
-If you need to modify styles in `public/css/src/input.css`:
-
-```bash
-# Option 1: Build once
-npm run build:css
-
-# Option 2: Watch for changes (auto-rebuild)
-npm run watch:css
-
-# Option 3: Watch both CSS and server (recommended)
-npm run dev:full
-```
-
-**File Structure:**
-- `public/css/src/input.css` - Source CSS with Tailwind `@apply` directives (edit this)
-- `public/css/style.css` - Compiled & minified CSS (auto-generated, don't edit)
-- `tailwind.config.js` - Tailwind configuration
-- `postcss.config.js` - PostCSS configuration
-
-#### Backend-Only Development
-
-If you're only working on backend code and don't need frontend dev tools:
-
-```bash
-npm install --production  # Skip devDependencies (saves ~20MB)
-npm start
-```
-
-**Note:** Pre-compiled CSS is committed to the repository, so you don't need to rebuild unless modifying styles.
-
-#### Project Structure
-
-See [CLAUDE.md](./CLAUDE.md) for detailed architecture documentation, including:
-- Request flow and module organization
-- Frontend architecture (Alpine.js + Tailwind)
-- Service layer patterns (`ErrorHandler.withLoading`, `AccountActions`)
-- Dashboard module documentation
+## Documentation
+
+- [Available Models](docs/models.md)
+- [Multi-Account Load Balancing](docs/load-balancing.md)
+- [Web Management Console](docs/web-console.md)
+- [Advanced Configuration](docs/configuration.md)
+- [macOS Menu Bar App](docs/menubar-app.md)
+- [OpenClaw / ClawdBot Integration](docs/openclaw.md)
+- [API Endpoints](docs/api-endpoints.md)
+- [Testing](docs/testing.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Safety, Usage, and Risk Notices](docs/safety-notices.md)
+- [Legal](docs/legal.md)
+- [Development](docs/development.md)
 
 ---
 
@@ -658,6 +326,8 @@ This project is based on insights and code from:
 MIT
 
 ---
+
+<a href="https://buymeacoffee.com/badrinarayanans" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
 
 ## Star History
 

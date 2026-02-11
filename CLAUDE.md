@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Antigravity Claude Proxy is a Node.js proxy server that exposes an Anthropic-compatible API backed by Antigravity's Cloud Code service. It enables using Claude models (`claude-sonnet-4-5-thinking`, `claude-opus-4-5-thinking`) and Gemini models (`gemini-3-flash`, `gemini-3-pro-low`, `gemini-3-pro-high`) with Claude Code CLI.
+Antigravity Claude Proxy is a Node.js proxy server that exposes an Anthropic-compatible API backed by Antigravity's Cloud Code service. It enables using Claude models (`claude-sonnet-4-5-thinking`, `claude-opus-4-6-thinking`) and Gemini models (`gemini-3-flash`, `gemini-3-pro-low`, `gemini-3-pro-high`) with Claude Code CLI.
 
 The proxy translates requests from Anthropic Messages API format → Google Generative AI format → Antigravity Cloud Code API, then converts responses back to Anthropic format with full thinking/streaming support.
 
@@ -25,7 +25,10 @@ npm start -- --strategy=hybrid      # Smart distribution (default)
 # Start with model fallback enabled (falls back to alternate model when quota exhausted)
 npm start -- --fallback
 
-# Start with debug logging
+# Start with developer mode (debug logging + dev tools)
+npm start -- --dev-mode
+
+# Start with debug logging (legacy alias, also enables dev mode)
 npm start -- --debug
 
 # Development mode (file watching)
@@ -130,6 +133,7 @@ src/
 │   └── signature-cache.js      # Signature cache (tool_use + thinking signatures)
 │
 └── utils/                      # Utilities
+    ├── claude-config.js        # Claude CLI settings file I/O (supports CLAUDE_CONFIG_PATH env var)
     ├── helpers.js              # formatDuration, sleep, isNetworkError
     ├── logger.js               # Structured logging
     └── native-module-helper.js # Auto-rebuild for native modules
@@ -149,11 +153,12 @@ public/
 │   ├── config/                 # Application configuration
 │   │   └── constants.js        # Centralized UI constants and limits
 │   ├── store.js                # Global state management
-│   ├── data-store.js           # Shared data store (accounts, models, quotas)
-│   ├── settings-store.js       # Settings management store
+│   ├── data-store.js           # Shared data store (accounts, models, quotas, placeholder data)
+│   ├── settings-store.js       # Settings management store (incl. dev mode sub-toggles)
 │   ├── components/             # UI Components
 │   │   ├── dashboard.js        # Main dashboard orchestrator
-│   │   ├── account-manager.js  # Account list & OAuth handling
+│   │   ├── account-manager.js  # Account list, OAuth, & threshold settings
+│   │   ├── models.js           # Model list with draggable quota threshold markers
 │   │   ├── logs-viewer.js      # Live log streaming
 │   │   ├── claude-config.js    # CLI settings editor
 │   │   ├── server-config.js    # Server settings UI
@@ -163,7 +168,8 @@ public/
 │   │       └── filters.js      # Chart filter state management
 │   └── utils/                  # Frontend utilities
 │       ├── error-handler.js    # Centralized error handling with ErrorHandler.withLoading
-│       ├── account-actions.js  # Account operations service layer (NEW)
+│       ├── account-actions.js  # Account operations service layer
+│       ├── redact.js           # Screenshot mode email redaction utility
 │       ├── validators.js       # Input validation
 │       └── model-config.js     # Model configuration helpers
 └── views/                      # HTML partials (loaded dynamically)
@@ -182,8 +188,10 @@ public/
   - `model-api.js`: Model listing, quota retrieval (`getModelQuotas()`), and subscription tier detection (`getSubscriptionTier()`)
 - **src/account-manager/**: Multi-account pool with configurable selection strategies, rate limit handling, and automatic cooldown
   - Strategies: `sticky` (cache-optimized), `round-robin` (load-balanced), `hybrid` (smart distribution)
+  - `getStrategyHealthData()`: Exposes per-account health scores, token buckets, and failure counts for the WebUI health inspector
 - **src/auth/**: Authentication including Google OAuth, token extraction, database access, and auto-rebuild of native modules
 - **src/format/**: Format conversion between Anthropic and Google Generative AI formats
+- **src/config.js**: Runtime configuration with defaults (`globalQuotaThreshold`, `maxAccounts`, `accountSelection`, `devMode`, etc.)
 - **src/constants.js**: API endpoints, model mappings, fallback config, OAuth config, and all configuration values
 - **src/modules/usage-stats.js**: Tracks request volume by model/family, persists 30-day history to JSON, and auto-prunes old data.
 - **src/fallback-config.js**: Model fallback mappings (`getFallbackModel()`, `hasFallback()`)
@@ -217,12 +225,23 @@ public/
    - Scoring formula: `score = (Health × 2) + ((Tokens / MaxTokens × 100) × 5) + (Quota × 1) + (LRU × 0.1)`
    - Health scores: Track success/failure patterns with passive recovery
    - Token buckets: Client-side rate limiting (50 tokens, 6 per minute regeneration)
-   - Quota awareness: Accounts with critical quota (<5%) are deprioritized
+   - Quota awareness: Accounts below configurable quota threshold are deprioritized
    - LRU freshness: Prefer accounts that have rested longer
    - **Emergency/Last Resort Fallback**: When all accounts are exhausted:
      - Emergency fallback: Bypasses health check, adds 250ms throttle delay
      - Last resort fallback: Bypasses both health and token checks, adds 500ms throttle delay
    - Configuration in `src/config.js` under `accountSelection`
+
+**Quota Threshold (Quota Protection):**
+- Configurable minimum quota level before the proxy switches to another account
+- Three-tier threshold resolution (highest priority first):
+  1. **Per-model**: `account.modelQuotaThresholds[modelId]` - override for specific models
+  2. **Per-account**: `account.quotaThreshold` - account-level default
+  3. **Global**: `config.globalQuotaThreshold` - server-wide default (0 = disabled)
+- All thresholds are stored as fractions (0-0.99), displayed as percentages (0-99%) in the UI
+- Global threshold configurable via WebUI Settings → Quota Protection
+- Per-account and per-model thresholds configurable via Account Settings modal or draggable markers on model quota bars
+- Used by `QuotaTracker.isQuotaCritical()` in the hybrid strategy to exclude low-quota accounts
 
 **Account Data Model:**
 Each account object in `accounts.json` contains:
@@ -232,6 +251,9 @@ Each account object in `accounts.json` contains:
   - `tier`: 'free' | 'pro' | 'ultra' (detected from `paidTier` or `currentTier`)
 - **Quota**: `{ models: {}, lastChecked }` - model-specific quota cache
   - `models[modelId]`: `{ remainingFraction, resetTime }` from `fetchAvailableModels` API
+- **Quota Thresholds**: Per-account quota protection settings
+  - `quotaThreshold`: Account-level minimum quota fraction (0-0.99, `undefined` = use global)
+  - `modelQuotaThresholds`: `{ [modelId]: fraction }` - per-model overrides (takes priority over account-level)
 - **Rate Limits**: `modelRateLimits[modelId]` - temporary rate limit state (in-memory during runtime)
 - **Validity**: `isInvalid`, `invalidReason` - tracks accounts needing re-authentication
 
@@ -265,12 +287,34 @@ Each account object in `accounts.json` contains:
 - Additional sanitizers (`sanitizeTextBlock`, `sanitizeToolUseBlock`) provide defense-in-depth
 - Pattern inspired by Antigravity-Manager's `clean_cache_control_from_messages()`
 
+**Claude CLI Config Path (systemd fix):**
+- `getClaudeConfigPath()` in `src/utils/claude-config.js` resolves the path to `~/.claude/settings.json`
+- When running as a systemd service, `os.homedir()` returns the service user's home (e.g. `/root`), not the real user's
+- Set `CLAUDE_CONFIG_PATH` env var to the real user's `.claude` directory (e.g. `/home/user/.claude`)
+- The env var is checked first; falls back to `os.homedir()/.claude` if unset
+
 **Native Module Auto-Rebuild:**
 - When Node.js is updated, native modules like `better-sqlite3` may become incompatible
 - The proxy automatically detects `NODE_MODULE_VERSION` mismatch errors
 - On detection, it attempts to rebuild the module using `npm rebuild`
 - If rebuild succeeds, the module is reloaded; if reload fails, a server restart is required
 - Implementation in `src/utils/native-module-helper.js` and lazy loading in `src/auth/database.js`
+
+**Developer Mode:**
+- Broader replacement for the old "Debug Mode" toggle, enabled via `--dev-mode` CLI flag, `DEV_MODE=true` env var, or WebUI Settings toggle
+- `--debug` flag is a legacy alias that also enables developer mode
+- Backend: `config.devMode` field in `src/config.js`, toggled at runtime via `POST /api/config` with `{ devMode: bool }`
+- Frontend: `Alpine.store('data').devMode` synced from server config on health checks
+- Gates access to `GET /api/strategy/health` (returns 403 when dev mode is off)
+- **Sub-toggles** (client-side, stored in `settings-store.js` via localStorage):
+  - **Screenshot Mode** (`redactMode`): Redacts email addresses across all views using `window.Redact` utility (`public/js/utils/redact.js`)
+  - **Debug Logging** (`debugLogging`): Controls verbose debug message display
+  - **Log Export** (`logExport`): Shows/hides the export button in the logs toolbar
+  - **Health Inspector** (`healthInspector`): Shows/hides the strategy health inspector panel in accounts view (hybrid strategy only)
+  - **Placeholder Data** (`placeholderMode`): Injects 4 dummy accounts with varied quotas for UI testing
+    - **Include Real Accounts** (`placeholderIncludeReal`): Merges real accounts alongside placeholder data
+- Placeholder data is purely client-side (generated in `data-store.js`, no backend changes)
+- All sub-toggles use unified neon-purple styling
 
 **Web Management UI:**
 
@@ -287,20 +331,22 @@ Each account object in `accounts.json` contains:
   - Layered architecture: Service Layer (`account-actions.js`) → Component Layer → UI
 - **Features**:
   - Real-time dashboard with Chart.js visualization and subscription tier distribution
-  - Account list with tier badges (Ultra/Pro/Free) and quota progress bars
+  - Account list with tier badges (Ultra/Pro/Free), quota progress bars, and per-account threshold settings
+  - Model quota bars with draggable per-account threshold markers (color-coded, with overlap handling)
   - OAuth flow handling via popup window
   - Live log streaming via Server-Sent Events (SSE)
   - Config editor for both Proxy and Claude CLI (`~/.claude/settings.json`)
   - Skeleton loading screens for improved perceived performance
   - Empty state UX with actionable prompts
   - Loading states for all async operations
+  - Developer Mode with granular sub-toggles (screenshot mode, debug logging, log export, health inspector, placeholder data)
 - **Accessibility**:
   - ARIA labels on search inputs and icon buttons
   - Keyboard navigation support (Escape to clear search)
 - **Security**: Optional password protection via `WEBUI_PASSWORD` env var
 - **Config Redaction**: Sensitive values (passwords, tokens) are redacted in API responses
 - **Smart Refresh**: Client-side polling with ±20% jitter and tab visibility detection (3x slower when hidden)
-- **i18n Support**: English, Chinese (中文), Indonesian (Bahasa), Portuguese (PT-BR)
+- **i18n Support**: English, Chinese (中文), Indonesian (Bahasa), Portuguese (PT-BR), Turkish (Türkçe)
 
 ## Testing Notes
 
@@ -353,15 +399,17 @@ Each account object in `accounts.json` contains:
 
 **WebUI APIs:**
 
-- `/api/accounts/*` - Account management (list, add, remove, refresh)
-- `/api/config/*` - Server configuration (read/write)
+- `/api/accounts/*` - Account management (list, add, remove, refresh, threshold settings)
+  - `PATCH /api/accounts/:email` - Update account quota thresholds (`quotaThreshold`, `modelQuotaThresholds`)
+- `/api/config/*` - Server configuration (read/write, includes `globalQuotaThreshold`, `devMode`)
+- `/api/strategy/health` - Strategy health data for hybrid strategy (gated behind `devMode`)
 - `/api/claude/config` - Claude CLI settings
 - `/api/claude/mode` - Switch between Proxy/Paid mode (updates settings.json)
 - `/api/logs/stream` - SSE endpoint for real-time logs
 - `/api/stats/history` - Retrieve 30-day request history (sorted chronologically)
 - `/api/auth/url` - Generate Google OAuth URL
 - `/account-limits` - Fetch account quotas and subscription data
-  - Returns: `{ accounts: [{ email, subscription: { tier, projectId }, limits: {...} }], models: [...] }`
+  - Returns: `{ accounts: [{ email, subscription, limits, quotaThreshold, modelQuotaThresholds, ... }], models: [...], globalQuotaThreshold }`
   - Query params: `?format=table` (ASCII table) or `?includeHistory=true` (adds usage stats)
 
 ## Frontend Development

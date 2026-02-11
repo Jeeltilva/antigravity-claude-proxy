@@ -5,6 +5,7 @@
  */
 
 import { ACCOUNT_CONFIG_PATH } from '../constants.js';
+import { config } from '../config.js';
 import { loadAccounts, loadDefaultAccount, saveAccounts } from './storage.js';
 import {
     isAllRateLimited as checkAllRateLimited,
@@ -33,7 +34,6 @@ import {
 } from './credentials.js';
 import { createStrategy, getStrategyLabel, DEFAULT_STRATEGY } from './strategies/index.js';
 import { logger } from '../utils/logger.js';
-import { config } from '../config.js';
 
 export class AccountManager {
     #accounts = [];
@@ -433,7 +433,10 @@ export class AccountManager {
                 modelRateLimits: a.modelRateLimits || {},
                 isInvalid: a.isInvalid || false,
                 invalidReason: a.invalidReason || null,
-                lastUsed: a.lastUsed
+                lastUsed: a.lastUsed,
+                // Include quota threshold settings
+                quotaThreshold: a.quotaThreshold,
+                modelQuotaThresholds: a.modelQuotaThresholds || {}
             }))
         };
     }
@@ -444,6 +447,50 @@ export class AccountManager {
      */
     getSettings() {
         return { ...this.#settings };
+    }
+
+    /**
+     * Get strategy health data for the health inspector panel.
+     * Only returns tracker data when using the hybrid strategy.
+     * @returns {Object} Strategy health data
+     */
+    getStrategyHealthData() {
+        const strategyName = this.#strategyName;
+
+        // Only hybrid strategy has trackers
+        if (!this.#strategy || typeof this.#strategy.getHealthTracker !== 'function') {
+            return { strategy: strategyName, trackers: null };
+        }
+
+        const healthTracker = this.#strategy.getHealthTracker();
+        const tokenBucketTracker = this.#strategy.getTokenBucketTracker();
+
+        const accounts = this.#accounts
+            .filter(a => a.enabled !== false)
+            .map(account => {
+                const email = account.email;
+                const healthScore = healthTracker ? healthTracker.getScore(email) : null;
+                const isUsable = healthTracker ? healthTracker.isUsable(email) : null;
+                const consecutiveFailures = healthTracker ? healthTracker.getConsecutiveFailures(email) : 0;
+                const tokens = tokenBucketTracker ? tokenBucketTracker.getTokens(email) : null;
+                const hasTokens = tokenBucketTracker ? tokenBucketTracker.hasTokens(email) : null;
+                const maxTokens = tokenBucketTracker ? tokenBucketTracker.getMaxTokens() : null;
+
+                return {
+                    email,
+                    healthScore: healthScore != null ? Math.round(healthScore * 10) / 10 : null,
+                    isUsable,
+                    consecutiveFailures,
+                    tokens: tokens != null ? Math.round(tokens * 10) / 10 : null,
+                    hasTokens,
+                    maxTokens
+                };
+            });
+
+        return {
+            strategy: strategyName,
+            trackers: { accounts }
+        };
     }
 
     /**

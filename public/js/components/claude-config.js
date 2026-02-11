@@ -16,6 +16,20 @@ window.Components.claudeConfig = () => ({
     currentMode: 'proxy', // 'proxy' or 'paid'
     modeLoading: false,
 
+    /**
+     * Extract port from ANTHROPIC_BASE_URL for display
+     * @returns {string} Port number or '8080' as fallback
+     */
+    getProxyPort() {
+        const baseUrl = this.config?.env?.ANTHROPIC_BASE_URL || '';
+        try {
+            const url = new URL(baseUrl);
+            return url.port || '8080';
+        } catch {
+            return '8080';
+        }
+    },
+
     // Presets state
     presets: [],
     selectedPresetName: '',
@@ -35,14 +49,14 @@ window.Components.claudeConfig = () => ({
 
     init() {
         // Only fetch config if this is the active sub-tab
-        if (this.activeTab === 'claude') {
+        if (this.$store.global.settingsTab === 'claude') {
             this.fetchConfig();
             this.fetchPresets();
             this.fetchMode();
         }
 
-        // Watch local activeTab (from parent settings scope, skip initial trigger)
-        this.$watch('activeTab', (tab, oldTab) => {
+        // Watch settings sub-tab (skip initial trigger)
+        this.$watch('$store.global.settingsTab', (tab, oldTab) => {
             if (tab === 'claude' && oldTab !== undefined) {
                 this.fetchConfig();
                 this.fetchPresets();
@@ -470,7 +484,10 @@ window.Components.claudeConfig = () => ({
 
             if (data.status === 'ok') {
                 this.currentMode = data.mode;
-                this.config = data.config || this.config;
+                if (data.config) {
+                    this.config = data.config;
+                    if (!this.config.env) this.config.env = {};
+                }
                 Alpine.store('global').showToast(data.message, 'success');
 
                 // Refresh the config and mode state

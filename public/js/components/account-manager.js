@@ -14,6 +14,16 @@ window.Components.accountManager = () => ({
     selectedAccountEmail: '',
     selectedAccountLimits: {},
 
+    // Health Inspector (Developer Mode)
+    healthData: {},
+    healthLoading: false,
+
+    init() {
+        if (Alpine.store('data').devMode && Alpine.store('settings').healthInspectorOpen) {
+            this.fetchHealthData();
+        }
+    },
+
     get filteredAccounts() {
         const accounts = Alpine.store('data').accounts || [];
         if (!this.searchQuery || this.searchQuery.trim() === '') {
@@ -44,7 +54,7 @@ window.Components.accountManager = () => ({
     async refreshAccount(email) {
         return await window.ErrorHandler.withLoading(async () => {
             const store = Alpine.store('global');
-            store.showToast(store.t('refreshingAccount', { email }), 'info');
+            store.showToast(store.t('refreshingAccount', { email: Redact.email(email) }), 'info');
 
             const { response, newPassword } = await window.utils.request(
                 `/api/accounts/${encodeURIComponent(email)}/refresh`,
@@ -55,7 +65,7 @@ window.Components.accountManager = () => ({
 
             const data = await response.json();
             if (data.status === 'ok') {
-                store.showToast(store.t('refreshedAccount', { email }), 'success');
+                store.showToast(store.t('refreshedAccount', { email: Redact.email(email) }), 'success');
                 Alpine.store('data').fetchData();
             } else {
                 throw new Error(data.error || store.t('refreshFailed'));
@@ -85,7 +95,7 @@ window.Components.accountManager = () => ({
             const data = await response.json();
             if (data.status === 'ok') {
                 const status = enabled ? store.t('enabledStatus') : store.t('disabledStatus');
-                store.showToast(store.t('accountToggled', { email, status }), 'success');
+                store.showToast(store.t('accountToggled', { email: Redact.email(email), status }), 'success');
                 // Refresh to confirm server state
                 await dataStore.fetchData();
             } else {
@@ -108,7 +118,7 @@ window.Components.accountManager = () => ({
 
     async fixAccount(email) {
         const store = Alpine.store('global');
-        store.showToast(store.t('reauthenticating', { email }), 'info');
+        store.showToast(store.t('reauthenticating', { email: Redact.email(email) }), 'info');
         const password = store.webuiPassword;
         try {
             const urlPath = `/api/auth/url?email=${encodeURIComponent(email)}`;
@@ -145,7 +155,7 @@ window.Components.accountManager = () => ({
 
             const data = await response.json();
             if (data.status === 'ok') {
-                store.showToast(store.t('deletedAccount', { email }), 'success');
+                store.showToast(store.t('deletedAccount', { email: Redact.email(email) }), 'success');
                 Alpine.store('data').fetchData();
                 document.getElementById('delete_account_modal').close();
                 this.deleteTarget = '';
@@ -180,6 +190,129 @@ window.Components.accountManager = () => ({
         this.selectedAccountEmail = account.email;
         this.selectedAccountLimits = account.limits || {};
         document.getElementById('quota_modal').showModal();
+    },
+
+    // Threshold settings
+    thresholdDialog: {
+        email: '',
+        quotaThreshold: null,  // null means use global
+        modelQuotaThresholds: {},
+        saving: false,
+        addingModel: false,
+        newModelId: '',
+        newModelThreshold: 10
+    },
+
+    openThresholdModal(account) {
+        this.thresholdDialog = {
+            email: account.email,
+            // Convert from fraction (0-1) to percentage (0-99) for display
+            quotaThreshold: account.quotaThreshold !== undefined ? Math.round(account.quotaThreshold * 100) : null,
+            modelQuotaThresholds: Object.fromEntries(
+                Object.entries(account.modelQuotaThresholds || {}).map(([k, v]) => [k, Math.round(v * 100)])
+            ),
+            saving: false,
+            addingModel: false,
+            newModelId: '',
+            newModelThreshold: 10
+        };
+        document.getElementById('threshold_modal').showModal();
+    },
+
+    async saveAccountThreshold() {
+        const store = Alpine.store('global');
+        this.thresholdDialog.saving = true;
+
+        try {
+            // Convert percentage back to fraction
+            const quotaThreshold = this.thresholdDialog.quotaThreshold !== null && this.thresholdDialog.quotaThreshold !== ''
+                ? parseFloat(this.thresholdDialog.quotaThreshold) / 100
+                : null;
+
+            // Convert model thresholds from percentage to fraction
+            const modelQuotaThresholds = {};
+            for (const [modelId, pct] of Object.entries(this.thresholdDialog.modelQuotaThresholds)) {
+                modelQuotaThresholds[modelId] = parseFloat(pct) / 100;
+            }
+
+            const { response, newPassword } = await window.utils.request(
+                `/api/accounts/${encodeURIComponent(this.thresholdDialog.email)}`,
+                {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ quotaThreshold, modelQuotaThresholds })
+                },
+                store.webuiPassword
+            );
+            if (newPassword) store.webuiPassword = newPassword;
+
+            const data = await response.json();
+            if (data.status === 'ok') {
+                store.showToast('Settings saved', 'success');
+                Alpine.store('data').fetchData();
+                document.getElementById('threshold_modal').close();
+            } else {
+                throw new Error(data.error || 'Failed to save settings');
+            }
+        } catch (e) {
+            store.showToast('Failed to save settings: ' + e.message, 'error');
+        } finally {
+            this.thresholdDialog.saving = false;
+        }
+    },
+
+    clearAccountThreshold() {
+        this.thresholdDialog.quotaThreshold = null;
+    },
+
+    // Per-model threshold methods
+    addModelThreshold() {
+        this.thresholdDialog.addingModel = true;
+        this.thresholdDialog.newModelId = '';
+        this.thresholdDialog.newModelThreshold = 10;
+    },
+
+    updateModelThreshold(modelId, value) {
+        const numValue = parseInt(value);
+        if (!isNaN(numValue) && numValue >= 0 && numValue <= 99) {
+            this.thresholdDialog.modelQuotaThresholds[modelId] = numValue;
+        }
+    },
+
+    removeModelThreshold(modelId) {
+        delete this.thresholdDialog.modelQuotaThresholds[modelId];
+    },
+
+    confirmAddModelThreshold() {
+        const modelId = this.thresholdDialog.newModelId;
+        const threshold = parseInt(this.thresholdDialog.newModelThreshold) || 10;
+
+        if (modelId && threshold >= 0 && threshold <= 99) {
+            this.thresholdDialog.modelQuotaThresholds[modelId] = threshold;
+            this.thresholdDialog.addingModel = false;
+            this.thresholdDialog.newModelId = '';
+            this.thresholdDialog.newModelThreshold = 10;
+        }
+    },
+
+    getAvailableModelsForThreshold() {
+        // Get models from data store, exclude already configured ones
+        const allModels = Alpine.store('data').models || [];
+        const configured = Object.keys(this.thresholdDialog.modelQuotaThresholds);
+        return allModels.filter(m => !configured.includes(m));
+    },
+
+    getEffectiveThreshold(account) {
+        // Return display string for effective threshold
+        if (account.quotaThreshold !== undefined) {
+            return Math.round(account.quotaThreshold * 100) + '%';
+        }
+        // If no per-account threshold, show global value
+        const globalThreshold = Alpine.store('data').globalQuotaThreshold;
+        if (globalThreshold > 0) {
+            return Math.round(globalThreshold * 100) + '% (global)';
+        }
+        return 'Global';
     },
 
     /**
@@ -241,6 +374,36 @@ window.Components.accountManager = () => ({
             percent: Math.round(val * 100),
             model: bestModel
         };
+    },
+
+    /**
+     * Fetch strategy health data for the inspector panel
+     */
+    async fetchHealthData() {
+        this.healthLoading = true;
+        try {
+            const store = Alpine.store('global');
+            const { response, newPassword } = await window.utils.request(
+                '/api/strategy/health',
+                {},
+                store.webuiPassword
+            );
+            if (newPassword) store.webuiPassword = newPassword;
+
+            const data = await response.json();
+            if (data.status === 'ok') {
+                this.healthData = data;
+            } else {
+                this.healthData = {};
+                if (response.status === 403) {
+                    store.showToast(data.error || 'Developer mode is not enabled', 'warning');
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch health data:', e);
+        } finally {
+            this.healthLoading = false;
+        }
     },
 
     /**
